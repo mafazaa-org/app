@@ -2,23 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'models/lesson.dart';
-import 'package:app/constants/colors.dart';
+import 'constants/colors.dart';
 import 'pages/home.dart';
+import 'services/lesson_service.dart';
+import 'services/notification_service.dart';
 
 void main() async {
-
   WidgetsFlutterBinding.ensureInitialized();
 
-  // تهيئة Hive
-  await Hive.initFlutter((await getApplicationDocumentsDirectory()).path);
+  // Initialise Hive using the app documents directory.
+  final appDir = await getApplicationDocumentsDirectory();
+  await Hive.initFlutter(appDir.path);
 
-  // تسجيل الـ Adapter
+  // Register generated type adapters.
   Hive.registerAdapter(LessonAdapter());
 
-  // فتح الصناديق (Boxes)
-  await Hive.openLazyBox<Lesson>('lessons');        // LazyBox مهم للبيانات الكبيرة
-  await Hive.openBox('settings');                   // للإعدادات العامة
+  // Open boxes.
+  await Hive.openLazyBox<Lesson>('lessons');
+  await Hive.openBox('settings'); // Track general user activity/settings
 
+  // Seed / sync lessons from the remote curriculum.
+  await LessonService().initializeLessons();
+
+  // Initialize daily reminder notification service.
+  await NotificationService().init();
 
   runApp(const MafazaApp());
 }
@@ -34,7 +41,7 @@ class MafazaApp extends StatelessWidget {
       theme: ThemeData(
         primaryColor: AppColors.primary,
         scaffoldBackgroundColor: AppColors.darkOne,
-        fontFamily: 'Cairo', // Recommended Arabic-friendly font (add to pubspec.yaml)
+        fontFamily: 'Cairo',
         textTheme: const TextTheme(
           headlineLarge: TextStyle(
             fontSize: 28,
@@ -44,7 +51,7 @@ class MafazaApp extends StatelessWidget {
           titleLarge: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w600,
-            color: AppColors.accent, // Teal accent
+            color: AppColors.accent,
           ),
         ),
         appBarTheme: const AppBarTheme(
