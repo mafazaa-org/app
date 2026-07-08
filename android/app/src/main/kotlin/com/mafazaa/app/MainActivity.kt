@@ -1,4 +1,4 @@
-package com.mafazaa.app
+package com.mafazaa
 
 import io.flutter.embedding.android.FlutterActivity
 
