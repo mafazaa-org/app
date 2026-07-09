@@ -7,7 +7,7 @@ import '../models/lesson.dart';
 class LessonService {
   static const String _lessonBox = 'lessons';
   static const String _curriculumUrl =
-      'https://raw.githubusercontent.com/mafazaa-org/Curriculum/main/public/curriculum.json';
+      'https://api.npoint.io/2035ddb6c563a8a7b572';
 
   LazyBox<Lesson> get _box => Hive.lazyBox<Lesson>(_lessonBox);
 
@@ -25,7 +25,9 @@ class LessonService {
           final firstKey = _box.keys.first;
           await _box.get(firstKey);
         } catch (e) {
-          debugPrint('[LessonService] Legacy schema mismatch detected during initialization. Clearing box: $e');
+          debugPrint(
+            '[LessonService] Legacy schema mismatch detected during initialization. Clearing box: $e',
+          );
           await _box.clear();
         }
       }
@@ -53,9 +55,13 @@ class LessonService {
         final List<dynamic> remoteJson =
             json.decode(response.body) as List<dynamic>;
         await _mergeLessons(remoteJson);
-        debugPrint('[LessonService] Synced ${remoteJson.length} lessons from remote.');
+        debugPrint(
+          '[LessonService] Synced ${remoteJson.length} lessons from remote.',
+        );
       } else {
-        debugPrint('[LessonService] Remote sync failed: HTTP ${response.statusCode}');
+        debugPrint(
+          '[LessonService] Remote sync failed: HTTP ${response.statusCode}',
+        );
       }
     } catch (e) {
       debugPrint('[LessonService] Remote sync error: $e');
@@ -78,7 +84,9 @@ class LessonService {
       try {
         existing = await _box.get(incoming.id);
       } catch (e) {
-        debugPrint('[LessonService] Schema mismatch reading lesson ${incoming.id}, healing key: $e');
+        debugPrint(
+          '[LessonService] Schema mismatch reading lesson ${incoming.id}, healing key: $e',
+        );
         await _box.delete(incoming.id);
       }
 
@@ -117,7 +125,9 @@ class LessonService {
         final lesson = await _box.get(key);
         if (lesson != null) lessons.add(lesson);
       } catch (e) {
-        debugPrint('[LessonService] Schema mismatch reading lesson key $key, healing key: $e');
+        debugPrint(
+          '[LessonService] Schema mismatch reading lesson key $key, healing key: $e',
+        );
         await _box.delete(key);
       }
     }
@@ -156,7 +166,10 @@ class LessonService {
   Future<List<Lesson>> getUnreadNotifications() async {
     final lessons = await getAllLessons();
     return lessons
-        .where((l) => l.completed && (l.notification?.isNotEmpty ?? false) && !l.read)
+        .where(
+          (l) =>
+              l.completed && (l.notification?.isNotEmpty ?? false) && !l.read,
+        )
         .toList();
   }
 
@@ -173,7 +186,10 @@ class LessonService {
   }
 
   /// Records or removes a group's completion date.
-  Future<void> updateGroupCompletionDate(String groupKey, bool isCompleted) async {
+  Future<void> updateGroupCompletionDate(
+    String groupKey,
+    bool isCompleted,
+  ) async {
     final Map<String, String> dates = getGroupCompletionDates();
     final todayStr = _getTodayDateString();
 
@@ -181,7 +197,9 @@ class LessonService {
       if (!dates.containsKey(groupKey)) {
         dates[groupKey] = todayStr;
         await _settingsBox.put(_groupCompletionDatesKey, dates);
-        debugPrint('[LessonService] Step group $groupKey completed on $todayStr');
+        debugPrint(
+          '[LessonService] Step group $groupKey completed on $todayStr',
+        );
       }
     } else {
       if (dates.containsKey(groupKey)) {

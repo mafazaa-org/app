@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:app/constants/colors.dart';
 import 'package:app/models/lesson.dart';
 import 'package:app/services/lesson_service.dart';
 import '../pages/notifications_modal.dart';
@@ -27,10 +26,10 @@ class NotificationBellState extends State<NotificationBell> {
   Future<void> refresh() async {
     final lessons = await _service.getAllLessons();
     final unread = lessons
-        .where((l) =>
-            l.completed &&
-            (l.notification?.isNotEmpty ?? false) &&
-            !l.read)
+        .where(
+          (l) =>
+              l.completed && (l.notification?.isNotEmpty ?? false) && !l.read,
+        )
         .toList();
     if (mounted) setState(() => _unread = unread);
   }
@@ -52,7 +51,11 @@ class NotificationBellState extends State<NotificationBell> {
       clipBehavior: Clip.none,
       children: [
         IconButton(
-          icon: const Icon(Icons.notifications_outlined, color: Colors.white, size: 24),
+          icon: const Icon(
+            Icons.notifications_outlined,
+            color: Colors.white,
+            size: 24,
+          ),
           onPressed: _openModal,
           tooltip: 'الإشعارات',
         ),
