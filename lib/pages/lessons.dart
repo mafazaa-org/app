@@ -1,8 +1,5 @@
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import 'package:app/constants/colors.dart';
 import 'package:app/models/lesson.dart';
 import 'package:app/models/lesson_group.dart';
@@ -24,18 +21,9 @@ class _LessonsPageState extends State<LessonsPage> {
   final _service = LessonService();
   final ScrollController _scrollController = ScrollController();
 
-  List<Lesson> _lessons = [];
   List<LessonGroup> _groups = [];
   Lesson? _current;
-  YoutubePlayerController? _ytController;
   bool _loading = true;
-
-  // ── Platform Compatibility check ───────────────────────────────────────────
-
-  bool get _isSupportedPlatform {
-    if (kIsWeb) return true;
-    return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
-  }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -47,7 +35,6 @@ class _LessonsPageState extends State<LessonsPage> {
 
   @override
   void dispose() {
-    _ytController?.close();
     _scrollController.dispose();
     super.dispose();
   }
@@ -78,7 +65,6 @@ class _LessonsPageState extends State<LessonsPage> {
       );
 
       setState(() {
-        _lessons = lessons;
         _groups = groups;
         _loading = false;
       });
@@ -111,27 +97,6 @@ class _LessonsPageState extends State<LessonsPage> {
   // ── Player control ─────────────────────────────────────────────────────────
 
   void _selectLesson(Lesson lesson, {bool autoPlay = true}) {
-    if (_isSupportedPlatform) {
-      final videoId = YoutubePlayerController.convertUrlToId(lesson.youtubeUrl);
-      if (videoId == null) return;
-
-      if (_ytController == null) {
-        // First initialisation.
-        _ytController = YoutubePlayerController.fromVideoId(
-          videoId: videoId,
-          autoPlay: autoPlay,
-          params: const YoutubePlayerParams(
-            showControls: true,
-            showFullscreenButton: true,
-            mute: false,
-            enableCaption: false,
-          ),
-        );
-      } else if (_current?.id != lesson.id) {
-        _ytController!.loadVideoById(videoId: videoId);
-      }
-    }
-
     setState(() => _current = lesson);
   }
 
@@ -173,14 +138,17 @@ class _LessonsPageState extends State<LessonsPage> {
     if (_current == null) return;
     final url = Uri.parse(_current!.youtubeUrl);
     try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('عذرًا، لا يمكن فتح الرابط')),
-          );
-        }
+      bool launched = false;
+      try {
+        launched = await launchUrl(url, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+      if (!launched) {
+        launched = await launchUrl(url, mode: LaunchMode.platformDefault);
+      }
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('عذرًا، لا يمكن فتح الرابط')),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -199,7 +167,7 @@ class _LessonsPageState extends State<LessonsPage> {
   Widget build(BuildContext context) {
     final bell = NotificationBell(key: _bellKey);
 
-    final scaffold = Scaffold(
+    return Scaffold(
       appBar: AppBar(
         title: const Text('رحلة الدروس',
             style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
@@ -214,38 +182,10 @@ class _LessonsPageState extends State<LessonsPage> {
           _background(),
           _loading
               ? const Center(child: CircularProgressIndicator(color: AppColors.accent))
-              : _body(context, null),
+              : _body(context),
         ],
       ),
     );
-
-    // Only wrap with YoutubePlayerScaffold if on a supported platform and controller is active.
-    if (_isSupportedPlatform && _ytController != null) {
-      return YoutubePlayerScaffold(
-        controller: _ytController!,
-        builder: (context, player) => Scaffold(
-          appBar: AppBar(
-            title: const Text('رحلة الدروس',
-                style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-            actions: [bell],
-          ),
-          body: Stack(
-            children: [
-              _background(),
-              _loading
-                  ? const Center(child: CircularProgressIndicator(color: AppColors.accent))
-                  : _body(context, player),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return scaffold;
   }
 
   // ── Background decoration ──────────────────────────────────────────────────
@@ -284,10 +224,10 @@ class _LessonsPageState extends State<LessonsPage> {
 
   // ── Main scrollable body ───────────────────────────────────────────────────
 
-  Widget _body(BuildContext context, Widget? player) => Column(
+  Widget _body(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _playerCard(context, player),
+          _playerCard(context),
           _sectionHeader('قائمة الدروس'),
           Expanded(
             child: _groupList(),
@@ -297,7 +237,7 @@ class _LessonsPageState extends State<LessonsPage> {
 
   // ── Player card ────────────────────────────────────────────────────────────
 
-  Widget _playerCard(BuildContext context, Widget? player) => Padding(
+  Widget _playerCard(BuildContext context) => Padding(
         padding: const EdgeInsets.all(16),
         child: Container(
           decoration: BoxDecoration(
@@ -332,7 +272,7 @@ class _LessonsPageState extends State<LessonsPage> {
                 borderRadius: BorderRadius.circular(12),
                 child: AspectRatio(
                   aspectRatio: 16 / 9,
-                  child: _buildVideoContent(context, player),
+                  child: _buildVideoContent(context),
                 ),
               ),
 
@@ -343,12 +283,7 @@ class _LessonsPageState extends State<LessonsPage> {
         ),
       );
 
-  Widget _buildVideoContent(BuildContext context, Widget? player) {
-    if (_isSupportedPlatform && player != null) {
-      return player;
-    }
-
-    // Fallback content for unsupported platforms (e.g. Windows)
+  Widget _buildVideoContent(BuildContext context) {
     final thumbnailUrl = _current?.thumbnailUrl ?? '';
     return InkWell(
       onTap: _launchCurrentVideo,
@@ -378,7 +313,7 @@ class _LessonsPageState extends State<LessonsPage> {
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  'تشغيل في المتصفح الخارجي',
+                  'شاهد الدرس على يوتيوب',
                   style: TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: 16,
@@ -390,7 +325,7 @@ class _LessonsPageState extends State<LessonsPage> {
               ),
               const SizedBox(height: 4),
               Text(
-                'المشغل المدمج غير مدعوم على هذا النظام',
+                'اضغط لتشغيل الفيديو في تطبيق يوتيوب أو المتصفح',
                 style: TextStyle(
                   fontFamily: 'Cairo',
                   fontSize: 12,
@@ -414,13 +349,13 @@ class _LessonsPageState extends State<LessonsPage> {
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: lesson.completed
-                    ? Colors.green.withOpacity(0.15)
-                    : AppColors.accent.withOpacity(0.1),
+                    ? Colors.green.withValues(alpha: 0.15)
+                    : AppColors.accent.withValues(alpha: 0.1),
                 foregroundColor: lesson.completed ? Colors.greenAccent : AppColors.accent,
                 side: BorderSide(
                   color: lesson.completed
                       ? Colors.greenAccent
-                      : AppColors.accent.withOpacity(0.5),
+                      : AppColors.accent.withValues(alpha: 0.5),
                 ),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -444,7 +379,7 @@ class _LessonsPageState extends State<LessonsPage> {
               'الشهر ${lesson.month} • الدرس ${lesson.order}',
               style: TextStyle(
                 fontFamily: 'Cairo',
-                color: AppColors.brightTwo.withOpacity(0.7),
+                color: AppColors.brightTwo.withValues(alpha: 0.7),
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
               ),
