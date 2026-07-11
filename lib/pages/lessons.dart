@@ -1,12 +1,12 @@
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import 'package:app/constants/colors.dart';
 import 'package:app/models/lesson.dart';
 import 'package:app/models/lesson_group.dart';
+import 'package:app/services/lesson_access_policy.dart';
 import 'package:app/services/lesson_service.dart';
+import 'package:app/widgets/embedded_youtube_player.dart';
 import '../widgets/notification_bell.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,14 +27,15 @@ class _LessonsPageState extends State<LessonsPage> {
   List<Lesson> _lessons = [];
   List<LessonGroup> _groups = [];
   Lesson? _current;
-  YoutubePlayerController? _ytController;
+  final Set<String> _completionUpdates = {};
   bool _loading = true;
+  String? _loadError;
 
   // ── Platform Compatibility check ───────────────────────────────────────────
 
-  bool get _isSupportedPlatform {
-    if (kIsWeb) return true;
-    return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
+  bool get _supportsEmbeddedPlayer {
+    if (kIsWeb) return false;
+    return Platform.isAndroid || Platform.isIOS;
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -47,7 +48,6 @@ class _LessonsPageState extends State<LessonsPage> {
 
   @override
   void dispose() {
-    _ytController?.close();
     _scrollController.dispose();
     super.dispose();
   }
@@ -71,22 +71,19 @@ class _LessonsPageState extends State<LessonsPage> {
       final lessons = await _service.getAllLessons();
       final groups = LessonGroup.fromLessons(lessons);
 
-      // Auto-select the first uncompleted lesson.
-      final first = lessons.firstWhere(
-        (l) => !l.completed,
-        orElse: () => lessons.first,
-      );
+      final current = LessonAccessPolicy.currentLesson(lessons);
+      if (!mounted) return;
 
       setState(() {
         _lessons = lessons;
         _groups = groups;
+        _current = current;
         _loading = false;
+        _loadError = lessons.isEmpty ? 'لا توجد دروس متاحة حاليًا.' : null;
       });
 
-      _selectLesson(first, autoPlay: false);
-
       // Scroll to the group containing the active lesson on startup.
-      if (lessons.isNotEmpty) {
+      if (current != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_scrollController.hasClients) {
             final targetIndex = _groups.indexWhere(
@@ -103,90 +100,129 @@ class _LessonsPageState extends State<LessonsPage> {
           }
         });
       }
-    } catch (_) {
-      setState(() => _loading = false);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = 'تعذر تحميل الدروس. تحقق من الاتصال وحاول مرة أخرى.';
+      });
     }
   }
 
   // ── Player control ─────────────────────────────────────────────────────────
 
-  void _selectLesson(Lesson lesson, {bool autoPlay = true}) {
-    if (_isSupportedPlatform) {
-      final videoId = YoutubePlayerController.convertUrlToId(lesson.youtubeUrl);
-      if (videoId == null) return;
+  bool _isLessonUnlocked(Lesson lesson) {
+    return LessonAccessPolicy.isUnlocked(_lessons, lesson);
+  }
 
-      if (_ytController == null) {
-        // First initialisation.
-        _ytController = YoutubePlayerController.fromVideoId(
-          videoId: videoId,
-          autoPlay: autoPlay,
-          params: const YoutubePlayerParams(
-            showControls: true,
-            showFullscreenButton: true,
-            mute: false,
-            enableCaption: false,
-          ),
-        );
-      } else if (_current?.id != lesson.id) {
-        _ytController!.loadVideoById(videoId: videoId);
-      }
+  void _selectLesson(Lesson lesson) {
+    final blocker = LessonAccessPolicy.blockingLesson(_lessons, lesson);
+    if (blocker != null) {
+      _showLockedLessonMessage(blocker);
+      return;
     }
 
     setState(() => _current = lesson);
   }
 
-  Future<void> _toggleCompleted(Lesson lesson) async {
-    setState(() => lesson.completed = !lesson.completed);
-    await _service.setCompleted(lesson.id, completed: lesson.completed);
-
-    // Find the group containing this lesson.
-    final group = _groups.firstWhere(
-      (g) => g.lessons.any((l) => l.id == lesson.id),
-      orElse: () => LessonGroup(month: lesson.month, order: lesson.order, lessons: [lesson]),
-    );
-    final groupKey = '${group.month}_${group.order}';
-
-    // Log the group completion date.
-    await _service.updateGroupCompletionDate(groupKey, group.isCompleted);
-
-    if (group.isCompleted && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+  void _showLockedLessonMessage(Lesson blocker) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
         SnackBar(
           content: Text(
-            group.hasMultiple
-                ? 'أحسنت! لقد أكملت هذه المجموعة من الدروس اليوم 🎉'
-                : 'رائع! لقد أكملت هذا الدرس اليوم 🎉',
-            style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+            'أكمل الدرس السابق أولًا:\n${blocker.title}',
             textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontFamily: 'Cairo',
+              fontWeight: FontWeight.bold,
+            ),
           ),
-          backgroundColor: Colors.green,
+          backgroundColor: AppColors.secondary,
           duration: const Duration(seconds: 3),
         ),
       );
-    }
-
-    // After completing, refresh the notification bell so the badge updates immediately.
-    _bellKey.currentState?.refresh();
   }
 
-  Future<void> _launchCurrentVideo() async {
-    if (_current == null) return;
-    final url = Uri.parse(_current!.youtubeUrl);
+  Future<void> _toggleCompleted(Lesson lesson) async {
+    if (_completionUpdates.contains(lesson.id)) return;
+
+    final blocker = LessonAccessPolicy.blockingLesson(_lessons, lesson);
+    if (!lesson.completed && blocker != null) {
+      _showLockedLessonMessage(blocker);
+      return;
+    }
+
+    final previousValue = lesson.completed;
+    final nextValue = !previousValue;
+    setState(() => _completionUpdates.add(lesson.id));
+
     try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('عذرًا، لا يمكن فتح الرابط')),
-          );
-        }
+      final saved = await _service.setCompleted(
+        lesson.id,
+        completed: nextValue,
+      );
+      if (saved == null) {
+        throw StateError('Lesson ${lesson.id} was not found in local storage.');
       }
-    } catch (e) {
-      if (mounted) {
+
+      if (!mounted) return;
+      setState(() {
+        lesson.completed = saved.completed;
+        final selected = _current;
+        if (!saved.completed &&
+            selected != null &&
+            !LessonAccessPolicy.isUnlocked(_lessons, selected)) {
+          _current = lesson;
+        }
+      });
+
+      final group = _groups.firstWhere(
+        (group) => group.lessons.any((item) => item.id == lesson.id),
+        orElse: () => LessonGroup(
+          month: lesson.month,
+          order: lesson.order,
+          lessons: [lesson],
+        ),
+      );
+      final groupKey = '${group.month}_${group.order}';
+      await _service.updateGroupCompletionDate(groupKey, group.isCompleted);
+
+      if (group.isCompleted && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ أثناء تشغيل الفيديو: $e')),
+          SnackBar(
+            content: Text(
+              group.hasMultiple
+                  ? 'أحسنت! لقد أكملت هذه المجموعة من الدروس اليوم 🎉'
+                  : 'رائع! لقد أكملت هذا الدرس اليوم 🎉',
+              style: const TextStyle(
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.right,
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
         );
+      }
+
+      _bellKey.currentState?.refresh();
+    } catch (error) {
+      lesson.completed = previousValue;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تعذر حفظ حالة الدرس. حاول مرة أخرى.',
+            textAlign: TextAlign.right,
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _completionUpdates.remove(lesson.id));
       }
     }
   }
@@ -199,10 +235,12 @@ class _LessonsPageState extends State<LessonsPage> {
   Widget build(BuildContext context) {
     final bell = NotificationBell(key: _bellKey);
 
-    final scaffold = Scaffold(
+    return Scaffold(
       appBar: AppBar(
-        title: const Text('رحلة الدروس',
-            style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+        title: const Text(
+          'رحلة الدروس',
+          style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.of(context).pop(),
@@ -213,349 +251,360 @@ class _LessonsPageState extends State<LessonsPage> {
         children: [
           _background(),
           _loading
-              ? const Center(child: CircularProgressIndicator(color: AppColors.accent))
-              : _body(context, null),
+              ? const Center(
+                  child: CircularProgressIndicator(color: AppColors.accent),
+                )
+              : _loadError != null
+              ? _errorState(_loadError!)
+              : _body(),
         ],
       ),
     );
-
-    // Only wrap with YoutubePlayerScaffold if on a supported platform and controller is active.
-    if (_isSupportedPlatform && _ytController != null) {
-      return YoutubePlayerScaffold(
-        controller: _ytController!,
-        builder: (context, player) => Scaffold(
-          appBar: AppBar(
-            title: const Text('رحلة الدروس',
-                style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-            actions: [bell],
-          ),
-          body: Stack(
-            children: [
-              _background(),
-              _loading
-                  ? const Center(child: CircularProgressIndicator(color: AppColors.accent))
-                  : _body(context, player),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return scaffold;
   }
+
+  Widget _errorState(String message) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontFamily: 'Cairo',
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 16,
+        ),
+      ),
+    ),
+  );
 
   // ── Background decoration ──────────────────────────────────────────────────
 
   Widget _background() => Stack(
-        children: [
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [AppColors.darkOne, AppColors.darkTwo],
-              ),
-            ),
+    children: [
+      Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppColors.darkOne, AppColors.darkTwo],
           ),
-          Positioned(
-            top: -50,
-            left: -50,
-            child: Container(
-              width: 200,
-              height: 200,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.accent.withValues(alpha: 0.15),
-                    blurRadius: 100,
-                    spreadRadius: 20,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      );
-
-  // ── Main scrollable body ───────────────────────────────────────────────────
-
-  Widget _body(BuildContext context, Widget? player) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _playerCard(context, player),
-          _sectionHeader('قائمة الدروس'),
-          Expanded(
-            child: _groupList(),
-          ),
-        ],
-      );
-
-  // ── Player card ────────────────────────────────────────────────────────────
-
-  Widget _playerCard(BuildContext context, Widget? player) => Padding(
-        padding: const EdgeInsets.all(16),
+        ),
+      ),
+      Positioned(
+        top: -50,
+        left: -50,
         child: Container(
+          width: 200,
+          height: 200,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: AppColors.accent.withValues(alpha: 0.3),
-              width: 1.5,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Title
-              if (_current != null && _current!.title.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Text(
-                    _current!.title,
-                    style: const TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                    textAlign: TextAlign.right,
-                  ),
-                ),
-
-              // YouTube player or fallback placeholder
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: _buildVideoContent(context, player),
-                ),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.accent.withValues(alpha: 0.15),
+                blurRadius: 100,
+                spreadRadius: 20,
               ),
-
-              // Completion toggle + meta
-              if (_current != null) _completionRow(_current!),
             ],
           ),
         ),
-      );
+      ),
+    ],
+  );
 
-  Widget _buildVideoContent(BuildContext context, Widget? player) {
-    if (_isSupportedPlatform && player != null) {
-      return player;
+  // ── Main scrollable body ───────────────────────────────────────────────────
+
+  Widget _body() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _playerCard(),
+      _sectionHeader('قائمة الدروس'),
+      Expanded(child: _groupList()),
+    ],
+  );
+
+  // ── Player card ────────────────────────────────────────────────────────────
+
+  Widget _playerCard() => Padding(
+    padding: const EdgeInsets.all(16),
+    child: Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AppColors.accent.withValues(alpha: 0.3),
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Title
+          if (_current != null && _current!.title.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                _current!.title,
+                style: const TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+                textAlign: TextAlign.right,
+              ),
+            ),
+
+          // YouTube player or fallback placeholder
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: _buildVideoContent(),
+            ),
+          ),
+
+          // Completion toggle + meta
+          if (_current != null) _completionRow(_current!),
+        ],
+      ),
+    ),
+  );
+
+  Widget _buildVideoContent() {
+    final current = _current;
+    if (current == null) {
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: Text(
+            'اختر درسًا للبدء',
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      );
     }
 
-    // Fallback content for unsupported platforms (e.g. Windows)
-    final thumbnailUrl = _current?.thumbnailUrl ?? '';
-    return InkWell(
-      onTap: _launchCurrentVideo,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (thumbnailUrl.isNotEmpty)
-            Image.network(
-              thumbnailUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(color: Colors.black54),
-            )
-          else
-            Container(color: Colors.black54),
-          Container(
-            color: Colors.black.withValues(alpha: 0.6),
+    if (_supportsEmbeddedPlayer) {
+      return EmbeddedYoutubePlayer(
+        key: ValueKey(current.id),
+        videoUrl: current.youtubeUrl,
+      );
+    }
+
+    return const ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text(
+            'المشغل المدمج متاح حاليًا على Android وiOS.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.play_circle_fill,
-                color: AppColors.accent,
-                size: 64,
+        ),
+      ),
+    );
+  }
+
+  Widget _completionRow(Lesson lesson) {
+    final isUpdating = _completionUpdates.contains(lesson.id);
+    final isUnlocked = _isLessonUnlocked(lesson);
+    final accentColor = lesson.completed
+        ? Colors.greenAccent
+        : isUnlocked
+        ? AppColors.accent
+        : AppColors.brightTwo.withValues(alpha: 0.35);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: accentColor.withValues(alpha: 0.12),
+              foregroundColor: accentColor,
+              disabledBackgroundColor: accentColor.withValues(alpha: 0.08),
+              disabledForegroundColor: accentColor,
+              side: BorderSide(color: accentColor.withValues(alpha: 0.55)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(height: 12),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'تشغيل في المتصفح الخارجي',
-                  style: TextStyle(
-                    fontFamily: 'Cairo',
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            ),
+            onPressed: isUpdating ? null : () => _toggleCompleted(lesson),
+            icon: isUpdating
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: accentColor,
+                    ),
+                  )
+                : Icon(
+                    !isUnlocked && !lesson.completed
+                        ? Icons.lock_outline
+                        : lesson.completed
+                        ? Icons.check_circle
+                        : Icons.radio_button_unchecked,
+                    size: 18,
                   ),
-                  textAlign: TextAlign.center,
-                ),
+            label: Text(
+              !isUnlocked && !lesson.completed
+                  ? 'أكمل السابق أولًا'
+                  : lesson.completed
+                  ? 'تم الإكمال'
+                  : 'تحديد كمكتمل',
+              style: const TextStyle(
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
               ),
-              const SizedBox(height: 4),
-              Text(
-                'المشغل المدمج غير مدعوم على هذا النظام',
-                style: TextStyle(
-                  fontFamily: 'Cairo',
-                  fontSize: 12,
-                  color: AppColors.brightTwo.withValues(alpha: 0.8),
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
+            ),
+          ),
+          Text(
+            'الشهر ${lesson.month} • الدرس ${lesson.order}',
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              color: AppColors.brightTwo.withValues(alpha: 0.7),
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _completionRow(Lesson lesson) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            // Toggle button
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: lesson.completed
-                    ? Colors.green.withOpacity(0.15)
-                    : AppColors.accent.withOpacity(0.1),
-                foregroundColor: lesson.completed ? Colors.greenAccent : AppColors.accent,
-                side: BorderSide(
-                  color: lesson.completed
-                      ? Colors.greenAccent
-                      : AppColors.accent.withOpacity(0.5),
-                ),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              ),
-              onPressed: () => _toggleCompleted(lesson),
-              icon: Icon(
-                lesson.completed ? Icons.check_circle : Icons.radio_button_unchecked,
-                size: 18,
-              ),
-              label: Text(
-                lesson.completed ? 'تم الإكمال' : 'تحديد كمكتمل',
-                style: const TextStyle(
-                  fontFamily: 'Cairo',
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-            // Month / order meta
-            Text(
-              'الشهر ${lesson.month} • الدرس ${lesson.order}',
-              style: TextStyle(
-                fontFamily: 'Cairo',
-                color: AppColors.brightTwo.withOpacity(0.7),
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-      );
-
   // ── Section header ─────────────────────────────────────────────────────────
 
   Widget _sectionHeader(String title) => Padding(
-        padding: const EdgeInsets.only(right: 24, left: 24, top: 12, bottom: 8),
-        child: Text(
-          title,
-          style: const TextStyle(
-            fontFamily: 'Cairo',
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-          textAlign: TextAlign.right,
-        ),
-      );
+    padding: const EdgeInsets.only(right: 24, left: 24, top: 12, bottom: 8),
+    child: Text(
+      title,
+      style: const TextStyle(
+        fontFamily: 'Cairo',
+        fontSize: 20,
+        fontWeight: FontWeight.bold,
+        color: Colors.white,
+      ),
+      textAlign: TextAlign.right,
+    ),
+  );
 
   // ── Lesson groups list ─────────────────────────────────────────────────────
 
   Widget _groupList() => ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-        itemCount: _groups.length,
-        itemBuilder: (_, i) => _groupCard(_groups[i]),
-      );
+    controller: _scrollController,
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+    itemCount: _groups.length,
+    itemBuilder: (_, i) => _groupCard(_groups[i]),
+  );
 
   Widget _groupCard(LessonGroup group) => Padding(
-        padding: const EdgeInsets.only(bottom: 16),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.02),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: group.isCompleted
-                  ? Colors.green.withValues(alpha: 0.25)
-                  : AppColors.accent.withValues(alpha: 0.1),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _groupHeader(group),
-              const Divider(color: Colors.white10, height: 1, indent: 12, endIndent: 12),
-              ...group.lessons.asMap().entries.map(
-                    (e) => _lessonTile(e.value, e.key, group.hasMultiple),
-                  ),
-              const SizedBox(height: 4),
-            ],
-          ),
+    padding: const EdgeInsets.only(bottom: 16),
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: group.isCompleted
+              ? Colors.green.withValues(alpha: 0.25)
+              : AppColors.accent.withValues(alpha: 0.1),
         ),
-      );
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _groupHeader(group),
+          const Divider(
+            color: Colors.white10,
+            height: 1,
+            indent: 12,
+            endIndent: 12,
+          ),
+          ...group.lessons.asMap().entries.map(
+            (e) => _lessonTile(e.value, e.key, group.hasMultiple),
+          ),
+          const SizedBox(height: 4),
+        ],
+      ),
+    ),
+  );
 
   Widget _groupHeader(LessonGroup group) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        // Badges
+        Wrap(
+          spacing: 6,
           children: [
-            // Badges
-            Wrap(
-              spacing: 6,
-              children: [
-                if (group.hasMultiple)
-                  _badge(
-                    'درس ثنائي (${group.completedCount}/${group.lessons.length})',
-                    AppColors.accent.withValues(alpha: 0.15),
-                    AppColors.accent,
-                  ),
-                if (group.isCompleted)
-                  _badge('مكتمل ✓', Colors.green.withValues(alpha: 0.15), Colors.greenAccent),
-              ],
-            ),
-            // Step label
-            Text(
-              'الشهر ${group.month} • الدرس ${group.order}',
-              style: const TextStyle(
-                fontFamily: 'Cairo',
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: AppColors.brightTwo,
+            if (group.hasMultiple)
+              _badge(
+                'درس ثنائي (${group.completedCount}/${group.lessons.length})',
+                AppColors.accent.withValues(alpha: 0.15),
+                AppColors.accent,
               ),
-            ),
+            if (group.isCompleted)
+              _badge(
+                'مكتمل ✓',
+                Colors.green.withValues(alpha: 0.15),
+                Colors.greenAccent,
+              ),
           ],
         ),
-      );
-
-  Widget _badge(String label, Color bg, Color fg) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
-        child: Text(
-          label,
-          style: TextStyle(
+        // Step label
+        Text(
+          'الشهر ${group.month} • الدرس ${group.order}',
+          style: const TextStyle(
             fontFamily: 'Cairo',
-            fontSize: 11,
-            color: fg,
+            fontSize: 14,
             fontWeight: FontWeight.bold,
+            color: AppColors.brightTwo,
           ),
         ),
-      );
+      ],
+    ),
+  );
+
+  Widget _badge(String label, Color bg, Color fg) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: bg,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+        fontFamily: 'Cairo',
+        fontSize: 11,
+        color: fg,
+        fontWeight: FontWeight.bold,
+      ),
+    ),
+  );
 
   // ── Single lesson tile ─────────────────────────────────────────────────────
 
   Widget _lessonTile(Lesson lesson, int idx, bool hasMultiple) {
     final isSelected = _current?.id == lesson.id;
+    final isUnlocked = _isLessonUnlocked(lesson);
+    final isUpdating = _completionUpdates.contains(lesson.id);
+    final mutedColor = AppColors.brightTwo.withValues(alpha: 0.32);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
       child: InkWell(
@@ -565,10 +614,16 @@ class _LessonsPageState extends State<LessonsPage> {
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: isSelected ? AppColors.primary.withValues(alpha: 0.15) : Colors.transparent,
+            color: isSelected
+                ? AppColors.primary.withValues(alpha: 0.15)
+                : !isUnlocked
+                ? Colors.black.withValues(alpha: 0.12)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: isSelected ? AppColors.accent : Colors.white.withValues(alpha: 0.04),
+              color: isSelected
+                  ? AppColors.accent
+                  : Colors.white.withValues(alpha: 0.04),
               width: isSelected ? 1.5 : 1.0,
             ),
           ),
@@ -578,22 +633,43 @@ class _LessonsPageState extends State<LessonsPage> {
               IconButton(
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                icon: Icon(
-                  lesson.completed ? Icons.check_box : Icons.check_box_outline_blank,
-                  color: lesson.completed
-                      ? AppColors.accent
-                      : AppColors.brightTwo.withValues(alpha: 0.4),
-                  size: 20,
-                ),
-                onPressed: () => _toggleCompleted(lesson),
+                icon: isUpdating
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.accent,
+                        ),
+                      )
+                    : Icon(
+                        !isUnlocked && !lesson.completed
+                            ? Icons.lock_outline
+                            : lesson.completed
+                            ? Icons.check_box
+                            : Icons.check_box_outline_blank,
+                        color: lesson.completed
+                            ? AppColors.accent
+                            : isUnlocked
+                            ? AppColors.brightTwo.withValues(alpha: 0.5)
+                            : mutedColor,
+                        size: 20,
+                      ),
+                onPressed: isUpdating ? null : () => _toggleCompleted(lesson),
               ),
               const SizedBox(width: 6),
               // Play indicator
               Icon(
-                isSelected ? Icons.play_circle_fill : Icons.play_circle_outline,
+                !isUnlocked
+                    ? Icons.lock
+                    : isSelected
+                    ? Icons.play_circle_fill
+                    : Icons.play_circle_outline,
                 color: isSelected
                     ? AppColors.accent
-                    : AppColors.brightTwo.withValues(alpha: 0.6),
+                    : isUnlocked
+                    ? AppColors.brightTwo.withValues(alpha: 0.6)
+                    : mutedColor,
                 size: 18,
               ),
               const SizedBox(width: 10),
@@ -607,8 +683,14 @@ class _LessonsPageState extends State<LessonsPage> {
                       style: TextStyle(
                         fontFamily: 'Cairo',
                         fontSize: 12,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                        color: isSelected ? Colors.white : AppColors.brightOne,
+                        fontWeight: isSelected
+                            ? FontWeight.bold
+                            : FontWeight.w500,
+                        color: isSelected
+                            ? Colors.white
+                            : isUnlocked
+                            ? AppColors.brightOne
+                            : mutedColor,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -625,7 +707,9 @@ class _LessonsPageState extends State<LessonsPage> {
                             fontWeight: FontWeight.bold,
                             color: isSelected
                                 ? AppColors.accent
-                                : AppColors.brightTwo.withValues(alpha: 0.6),
+                                : isUnlocked
+                                ? AppColors.brightTwo.withValues(alpha: 0.6)
+                                : mutedColor,
                           ),
                         ),
                       ),
@@ -639,13 +723,27 @@ class _LessonsPageState extends State<LessonsPage> {
                 child: SizedBox(
                   width: 70,
                   height: 39,
-                  child: lesson.thumbnailUrl.isNotEmpty
-                      ? Image.network(
-                          lesson.thumbnailUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _thumbPlaceholder(),
-                        )
-                      : _thumbPlaceholder(),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      lesson.thumbnailUrl.isNotEmpty
+                          ? Image.network(
+                              lesson.thumbnailUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _thumbPlaceholder(),
+                            )
+                          : _thumbPlaceholder(),
+                      if (!isUnlocked)
+                        ColoredBox(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          child: const Icon(
+                            Icons.lock_outline,
+                            color: Colors.white70,
+                            size: 18,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -656,7 +754,7 @@ class _LessonsPageState extends State<LessonsPage> {
   }
 
   Widget _thumbPlaceholder() => Container(
-        color: Colors.black26,
-        child: const Icon(Icons.video_library, color: Colors.white24, size: 18),
-      );
+    color: Colors.black26,
+    child: const Icon(Icons.video_library, color: Colors.white24, size: 18),
+  );
 }
