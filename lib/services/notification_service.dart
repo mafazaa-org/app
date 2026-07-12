@@ -29,25 +29,24 @@ class NotificationService {
       // Configure iOS initialization settings
       const DarwinInitializationSettings initializationSettingsDarwin =
           DarwinInitializationSettings(
-        requestAlertPermission: false,
-        requestBadgePermission: false,
-        requestSoundPermission: false,
-      );
+            requestAlertPermission: false,
+            requestBadgePermission: false,
+            requestSoundPermission: false,
+          );
 
-      const InitializationSettings initializationSettings = InitializationSettings(
-        android: initializationSettingsAndroid,
-        iOS: initializationSettingsDarwin,
-      );
+      const InitializationSettings initializationSettings =
+          InitializationSettings(
+            android: initializationSettingsAndroid,
+            iOS: initializationSettingsDarwin,
+          );
 
-      await _notificationsPlugin.initialize(
-        initializationSettings,
-      );
+      await _notificationsPlugin.initialize(initializationSettings);
 
       debugPrint('[NotificationService] Initialized successfully');
-      
+
       // Request permission
       await requestPermissions();
-      
+
       // Schedule daily reminder
       await scheduleDailyReminder();
     } catch (e) {
@@ -59,19 +58,17 @@ class NotificationService {
     if (Platform.isAndroid) {
       final androidImplementation = _notificationsPlugin
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
+            AndroidFlutterLocalNotificationsPlugin
+          >();
       if (androidImplementation != null) {
         await androidImplementation.requestNotificationsPermission();
       }
     } else if (Platform.isIOS) {
       await _notificationsPlugin
           .resolvePlatformSpecificImplementation<
-              IOSFlutterLocalNotificationsPlugin>()
-          ?.requestPermissions(
-            alert: true,
-            badge: true,
-            sound: true,
-          );
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(alert: true, badge: true, sound: true);
     }
   }
 
@@ -86,14 +83,15 @@ class NotificationService {
       await _notificationsPlugin.cancel(100);
 
       // Define notification details
-      const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-        'daily_reminder_channel',
-        'Daily Reminders',
-        channelDescription: 'Remind users to watch their daily lessons',
-        importance: Importance.max,
-        priority: Priority.high,
-        playSound: true,
-      );
+      const AndroidNotificationDetails androidDetails =
+          AndroidNotificationDetails(
+            'daily_reminder_channel',
+            'Daily Reminders',
+            channelDescription: 'Remind users to watch their daily lessons',
+            importance: Importance.max,
+            priority: Priority.high,
+            playSound: true,
+          );
 
       const NotificationDetails details = NotificationDetails(
         android: androidDetails,
@@ -112,10 +110,13 @@ class NotificationService {
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.time, // Repeat daily at this time
+        matchDateTimeComponents:
+            DateTimeComponents.time, // Repeat daily at this time
       );
-      
-      debugPrint('[NotificationService] Daily reminder scheduled for: $scheduledTime');
+
+      debugPrint(
+        '[NotificationService] Daily reminder scheduled for: $scheduledTime',
+      );
     } catch (e) {
       debugPrint('[NotificationService] Error scheduling daily reminder: $e');
     }
@@ -124,9 +125,15 @@ class NotificationService {
   tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
     final tz.Location local = tz.local;
     final tz.TZDateTime now = tz.TZDateTime.now(local);
-    tz.TZDateTime scheduledDate =
-        tz.TZDateTime(local, now.year, now.month, now.day, hour, minute);
-        
+    tz.TZDateTime scheduledDate = tz.TZDateTime(
+      local,
+      now.year,
+      now.month,
+      now.day,
+      hour,
+      minute,
+    );
+
     if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }

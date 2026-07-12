@@ -144,13 +144,14 @@ class LessonService {
   /// Persists the [completed] state for the lesson identified by [id].
   /// When [completed] becomes true, automatically resets [Lesson.read] to false
   /// so any attached notification surfaces as unread.
-  Future<void> setCompleted(String id, {required bool completed}) async {
+  Future<Lesson?> setCompleted(String id, {required bool completed}) async {
     final lesson = await _box.get(id);
-    if (lesson != null) {
-      lesson.completed = completed;
-      if (completed) lesson.read = false; // surface notification as unread
-      await _box.put(id, lesson);
-    }
+    if (lesson == null) return null;
+
+    lesson.completed = completed;
+    if (completed) lesson.read = false; // surface notification as unread
+    await _box.put(id, lesson);
+    return lesson;
   }
 
   /// Marks the notification for [id] as read.

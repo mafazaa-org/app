@@ -27,13 +27,17 @@ class LessonAdapter extends TypeAdapter<Lesson> {
       completed: fields[6] as bool,
       notification: fields[8] as String?,
       read: fields[9] as bool,
+      startSecond: fields[10] as int?,
+      endSecond: fields[11] as int?,
+      partTitle: fields[12] as String?,
+      partNumber: fields[13] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, Lesson obj) {
     writer
-      ..writeByte(10)
+      ..writeByte(14)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -53,7 +57,15 @@ class LessonAdapter extends TypeAdapter<Lesson> {
       ..writeByte(8)
       ..write(obj.notification)
       ..writeByte(9)
-      ..write(obj.read);
+      ..write(obj.read)
+      ..writeByte(10)
+      ..write(obj.startSecond)
+      ..writeByte(11)
+      ..write(obj.endSecond)
+      ..writeByte(12)
+      ..write(obj.partTitle)
+      ..writeByte(13)
+      ..write(obj.partNumber);
   }
 
   @override
