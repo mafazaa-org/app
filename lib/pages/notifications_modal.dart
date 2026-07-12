@@ -90,17 +90,19 @@ class _NotificationsModalState extends State<NotificationsModal> {
             // Body
             Expanded(
               child: _loading
-                  ? const Center(child: CircularProgressIndicator(color: AppColors.accent))
+                  ? const Center(
+                      child: CircularProgressIndicator(color: AppColors.accent),
+                    )
                   : _lessons.isEmpty
-                      ? _emptyState()
-                      : ListView.separated(
-                          controller: controller,
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          itemCount: _lessons.length,
-                          separatorBuilder: (_, __) =>
-                              const Divider(color: Colors.white10, height: 1),
-                          itemBuilder: (_, i) => _compactNotifTile(_lessons[i]),
-                        ),
+                  ? _emptyState()
+                  : ListView.separated(
+                      controller: controller,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: _lessons.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(color: Colors.white10, height: 1),
+                      itemBuilder: (_, i) => _compactNotifTile(_lessons[i]),
+                    ),
             ),
           ],
         ),
@@ -109,32 +111,35 @@ class _NotificationsModalState extends State<NotificationsModal> {
   }
 
   Widget _emptyState() => Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.notifications_none,
-                size: 64, color: Colors.white.withValues(alpha: 0.15)),
-            const SizedBox(height: 16),
-            const Text(
-              'لا توجد إشعارات بعد',
-              style: TextStyle(
-                fontFamily: 'Cairo',
-                fontSize: 16,
-                color: Colors.white54,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'أكمل دروسك لتظهر إشعاراتك هنا',
-              style: TextStyle(
-                fontFamily: 'Cairo',
-                fontSize: 13,
-                color: Colors.white30,
-              ),
-            ),
-          ],
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.notifications_none,
+          size: 64,
+          color: Colors.white.withValues(alpha: 0.15),
         ),
-      );
+        const SizedBox(height: 16),
+        const Text(
+          'لا توجد إشعارات بعد',
+          style: TextStyle(
+            fontFamily: 'Cairo',
+            fontSize: 16,
+            color: Colors.white54,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'أكمل دروسك لتظهر إشعاراتك هنا',
+          style: TextStyle(
+            fontFamily: 'Cairo',
+            fontSize: 13,
+            color: Colors.white30,
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _compactNotifTile(Lesson lesson) {
     final bool isUnread = !lesson.read;
@@ -281,10 +286,7 @@ class _NotificationsModalState extends State<NotificationsModal> {
 
   /// Splits [text] into plain text and URL spans.
   List<InlineSpan> _parseLinks(String text) {
-    final urlRegex = RegExp(
-      r'https?://[^\s<>"]+',
-      caseSensitive: false,
-    );
+    final urlRegex = RegExp(r'https?://[^\s<>"]+', caseSensitive: false);
 
     final spans = <InlineSpan>[];
     int lastEnd = 0;

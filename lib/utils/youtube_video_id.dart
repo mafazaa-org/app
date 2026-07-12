@@ -42,12 +42,7 @@ const _youtubeHosts = {
   'www.youtube-nocookie.com',
 };
 
-const _videoPathPrefixes = {
-  'embed',
-  'shorts',
-  'live',
-  'v',
-};
+const _videoPathPrefixes = {'embed', 'shorts', 'live', 'v'};
 
 final _youtubeVideoIdPattern = RegExp(r'^[A-Za-z0-9_-]{11}$');
 

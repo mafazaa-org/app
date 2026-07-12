@@ -71,20 +71,20 @@ class Lesson extends HiveObject {
     this.partNumber,
   });
 
-String get displayTitle {
-  final cleanPartTitle = partTitle?.trim();
-  final cleanTitle = title.trim();
+  String get displayTitle {
+    final cleanPartTitle = partTitle?.trim();
+    final cleanTitle = title.trim();
 
-  if (cleanPartTitle == null || cleanPartTitle.isEmpty) {
-    return cleanTitle;
+    if (cleanPartTitle == null || cleanPartTitle.isEmpty) {
+      return cleanTitle;
+    }
+
+    if (cleanTitle.isEmpty) {
+      return cleanPartTitle;
+    }
+
+    return '$cleanPartTitle - $cleanTitle';
   }
-
-  if (cleanTitle.isEmpty) {
-    return cleanPartTitle;
-  }
-
-  return '$cleanPartTitle - $cleanTitle';
-}
 
   bool get hasTimeRange => startSecond != null || endSecond != null;
 
@@ -108,10 +108,6 @@ String get displayTitle {
     partNumber: _readOptionalInt(json, ['partNumber', 'part_number', 'part']),
   );
 }
-
-
-
-
 
 int? _readOptionalInt(Map<String, dynamic> json, List<String> keys) {
   for (final key in keys) {

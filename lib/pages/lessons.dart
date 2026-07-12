@@ -69,44 +69,44 @@ class _LessonsPageState extends State<LessonsPage> {
     return offset;
   }
 
-List<int> get _allMonths {
-  final values = _groups.map((group) => group.month).toSet().toList()..sort();
-  return values;
-}
-
-int? get _activeMonth {
-  for (final lesson in _lessons) {
-    if (!lesson.completed) return lesson.month;
+  List<int> get _allMonths {
+    final values = _groups.map((group) => group.month).toSet().toList()..sort();
+    return values;
   }
 
-  final months = _allMonths;
-  return months.isEmpty ? null : months.last;
-}
+  int? get _activeMonth {
+    for (final lesson in _lessons) {
+      if (!lesson.completed) return lesson.month;
+    }
 
-bool _isMonthCompleted(int month) {
-  final monthLessons = _lessons
-      .where((lesson) => lesson.month == month)
-      .toList();
-
-  return monthLessons.isNotEmpty &&
-      monthLessons.every((lesson) => lesson.completed);
-}
-
-int? _nextMonthAfter(int month) {
-  for (final candidate in _allMonths) {
-    if (candidate > month) return candidate;
+    final months = _allMonths;
+    return months.isEmpty ? null : months.last;
   }
 
-  return null;
-}
+  bool _isMonthCompleted(int month) {
+    final monthLessons = _lessons
+        .where((lesson) => lesson.month == month)
+        .toList();
 
-List<int> get _months {
-  final activeMonth = _activeMonth;
+    return monthLessons.isNotEmpty &&
+        monthLessons.every((lesson) => lesson.completed);
+  }
 
-  return _allMonths
-      .where((month) => _isMonthCompleted(month) || month == activeMonth)
-      .toList();
-}
+  int? _nextMonthAfter(int month) {
+    for (final candidate in _allMonths) {
+      if (candidate > month) return candidate;
+    }
+
+    return null;
+  }
+
+  List<int> get _months {
+    final activeMonth = _activeMonth;
+
+    return _allMonths
+        .where((month) => _isMonthCompleted(month) || month == activeMonth)
+        .toList();
+  }
 
   List<LessonGroup> get _visibleGroups {
     final month = _selectedMonth;
@@ -170,11 +170,11 @@ List<int> get _months {
       return;
     }
 
-final previousValue = lesson.completed;
-final nextValue = !previousValue;
-final wasMonthCompletedBefore = _isMonthCompleted(lesson.month);
+    final previousValue = lesson.completed;
+    final nextValue = !previousValue;
+    final wasMonthCompletedBefore = _isMonthCompleted(lesson.month);
 
-setState(() => _completionUpdates.add(lesson.id));
+    setState(() => _completionUpdates.add(lesson.id));
     try {
       final saved = await _service.setCompleted(
         lesson.id,
@@ -210,67 +210,71 @@ setState(() => _completionUpdates.add(lesson.id));
       final groupKey = '${group.month}_${group.order}';
       await _service.updateGroupCompletionDate(groupKey, group.isCompleted);
 
-final unlockedMonth =
-    nextValue && !wasMonthCompletedBefore && _isMonthCompleted(lesson.month)
-        ? _nextMonthAfter(lesson.month)
-        : null;
+      final unlockedMonth =
+          nextValue &&
+              !wasMonthCompletedBefore &&
+              _isMonthCompleted(lesson.month)
+          ? _nextMonthAfter(lesson.month)
+          : null;
 
-if (mounted) {
-  if (unlockedMonth != null) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            'رائع! لقد أكملت الشهر ${lesson.month} وتم فتح الشهر $unlockedMonth 🎉',
-            style: const TextStyle(
-              fontFamily: 'Cairo',
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.right,
-          ),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 4),
-        ),
-      );
-  } else if (nextValue && !wasMonthCompletedBefore && _isMonthCompleted(lesson.month)) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            'بارك الله فيك! لقد أكملت كل الشهور المتاحة 🎉',
-            style: const TextStyle(
-              fontFamily: 'Cairo',
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.right,
-          ),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 4),
-        ),
-      );
-  } else if (group.isCompleted) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            group.hasMultiple
-                ? 'أحسنت! لقد أكملت هذه المجموعة من الدروس اليوم 🎉'
-                : 'رائع! لقد أكملت هذا الدرس اليوم 🎉',
-            style: const TextStyle(
-              fontFamily: 'Cairo',
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.right,
-          ),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-  }
-}
+      if (mounted) {
+        if (unlockedMonth != null) {
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  'رائع! لقد أكملت الشهر ${lesson.month} وتم فتح الشهر $unlockedMonth 🎉',
+                  style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.right,
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+        } else if (nextValue &&
+            !wasMonthCompletedBefore &&
+            _isMonthCompleted(lesson.month)) {
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  'بارك الله فيك! لقد أكملت كل الشهور المتاحة 🎉',
+                  style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.right,
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+        } else if (group.isCompleted) {
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  group.hasMultiple
+                      ? 'أحسنت! لقد أكملت هذه المجموعة من الدروس اليوم 🎉'
+                      : 'رائع! لقد أكملت هذا الدرس اليوم 🎉',
+                  style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.right,
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+        }
+      }
 
       _bellKey.currentState?.refresh();
     } catch (error) {

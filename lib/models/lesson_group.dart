@@ -24,18 +24,18 @@ class LessonGroup {
     for (final lesson in lessons) {
       map.putIfAbsent('${lesson.month}_${lesson.order}', () => []).add(lesson);
     }
-    final groups = map.entries.map((e) {
-      final parts = e.key.split('_');
-      return LessonGroup(
-        month: int.parse(parts[0]),
-        order: int.parse(parts[1]),
-        lessons: e.value,
-      );
-    }).toList()
-      ..sort((a, b) {
-        final m = a.month.compareTo(b.month);
-        return m != 0 ? m : a.order.compareTo(b.order);
-      });
+    final groups =
+        map.entries.map((e) {
+          final parts = e.key.split('_');
+          return LessonGroup(
+            month: int.parse(parts[0]),
+            order: int.parse(parts[1]),
+            lessons: e.value,
+          );
+        }).toList()..sort((a, b) {
+          final m = a.month.compareTo(b.month);
+          return m != 0 ? m : a.order.compareTo(b.order);
+        });
     return groups;
   }
 }

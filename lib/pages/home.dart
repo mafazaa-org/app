@@ -11,7 +11,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final GlobalKey<NotificationBellState> _bellKey = GlobalKey<NotificationBellState>();
+  final GlobalKey<NotificationBellState> _bellKey =
+      GlobalKey<NotificationBellState>();
 
   @override
   Widget build(BuildContext context) {
@@ -24,10 +25,7 @@ class _HomeScreenState extends State<HomeScreen> {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [
-                  AppColors.darkOne,
-                  AppColors.darkTwo,
-                ],
+                colors: [AppColors.darkOne, AppColors.darkTwo],
               ),
             ),
           ),
@@ -95,7 +93,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     child: IntrinsicHeight(
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24.0,
+                          vertical: 32,
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
@@ -117,16 +118,15 @@ class _HomeScreenState extends State<HomeScreen> {
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(30),
                                 gradient: const LinearGradient(
-                                  colors: [
-                                    AppColors.accent,
-                                    AppColors.primary,
-                                  ],
+                                  colors: [AppColors.accent, AppColors.primary],
                                   begin: Alignment.centerRight,
                                   end: Alignment.centerLeft,
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: AppColors.accent.withValues(alpha: 0.3),
+                                    color: AppColors.accent.withValues(
+                                      alpha: 0.3,
+                                    ),
                                     blurRadius: 15,
                                     offset: const Offset(0, 5),
                                   ),
@@ -177,7 +177,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: AppColors.primary.withValues(alpha: 0.25),
+                                    color: AppColors.primary.withValues(
+                                      alpha: 0.25,
+                                    ),
                                     blurRadius: 20,
                                     spreadRadius: 2,
                                   ),
