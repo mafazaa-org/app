@@ -23,6 +23,9 @@ class LessonsPage extends StatefulWidget {
 class _LessonsPageState extends State<LessonsPage> {
   final _service = LessonService();
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  int? _selectedMonth;
 
   List<Lesson> _lessons = [];
   List<LessonGroup> _groups = [];
@@ -66,6 +69,20 @@ class _LessonsPageState extends State<LessonsPage> {
     return offset;
   }
 
+  List<int> get _months {
+    final values = _groups.map((group) => group.month).toSet().toList()..sort();
+    return values;
+  }
+
+  List<LessonGroup> get _visibleGroups {
+    final month = _selectedMonth;
+    if (month == null) return _groups;
+
+    return _groups.where((group) => group.month == month).toList();
+  }
+
+ 
+
   Future<void> _loadLessons() async {
     try {
       final lessons = await _service.getAllLessons();
@@ -78,10 +95,11 @@ class _LessonsPageState extends State<LessonsPage> {
         _lessons = lessons;
         _groups = groups;
         _current = current;
+        _selectedMonth =
+            current?.month ?? (lessons.isNotEmpty ? lessons.first.month : null);
         _loading = false;
         _loadError = lessons.isEmpty ? 'لا توجد دروس متاحة حاليًا.' : null;
       });
-
       // Scroll to the group containing the active lesson on startup.
       if (current != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -110,6 +128,96 @@ class _LessonsPageState extends State<LessonsPage> {
   }
 
   // ── Player control ─────────────────────────────────────────────────────────
+
+  Future<void> _toggleCompleted(Lesson lesson) async {
+    if (_completionUpdates.contains(lesson.id)) return;
+
+    final blocker = LessonAccessPolicy.blockingLesson(_lessons, lesson);
+    if (!lesson.completed && blocker != null) {
+      _showLockedLessonMessage(blocker);
+      return;
+    }
+
+    final previousValue = lesson.completed;
+    final nextValue = !previousValue;
+
+    setState(() => _completionUpdates.add(lesson.id));
+
+    try {
+      final saved = await _service.setCompleted(
+        lesson.id,
+        completed: nextValue,
+      );
+
+      if (saved == null) {
+        throw StateError('Lesson ${lesson.id} was not found in local storage.');
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        lesson.completed = saved.completed;
+
+        final selected = _current;
+        if (!saved.completed &&
+            selected != null &&
+            !LessonAccessPolicy.isUnlocked(_lessons, selected)) {
+          _current = lesson;
+        }
+      });
+
+      final group = _groups.firstWhere(
+        (group) => group.lessons.any((item) => item.id == lesson.id),
+        orElse: () => LessonGroup(
+          month: lesson.month,
+          order: lesson.order,
+          lessons: [lesson],
+        ),
+      );
+
+      final groupKey = '${group.month}_${group.order}';
+      await _service.updateGroupCompletionDate(groupKey, group.isCompleted);
+
+      if (group.isCompleted && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              group.hasMultiple
+                  ? 'أحسنت! لقد أكملت هذه المجموعة من الدروس اليوم 🎉'
+                  : 'رائع! لقد أكملت هذا الدرس اليوم 🎉',
+              style: const TextStyle(
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.right,
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+
+      _bellKey.currentState?.refresh();
+    } catch (error) {
+      lesson.completed = previousValue;
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تعذر حفظ حالة الدرس. حاول مرة أخرى.',
+            textAlign: TextAlign.right,
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _completionUpdates.remove(lesson.id));
+      }
+    }
+  }
 
   bool _isLessonUnlocked(Lesson lesson) {
     return LessonAccessPolicy.isUnlocked(_lessons, lesson);
@@ -144,89 +252,6 @@ class _LessonsPageState extends State<LessonsPage> {
       );
   }
 
-  Future<void> _toggleCompleted(Lesson lesson) async {
-    if (_completionUpdates.contains(lesson.id)) return;
-
-    final blocker = LessonAccessPolicy.blockingLesson(_lessons, lesson);
-    if (!lesson.completed && blocker != null) {
-      _showLockedLessonMessage(blocker);
-      return;
-    }
-
-    final previousValue = lesson.completed;
-    final nextValue = !previousValue;
-    setState(() => _completionUpdates.add(lesson.id));
-
-    try {
-      final saved = await _service.setCompleted(
-        lesson.id,
-        completed: nextValue,
-      );
-      if (saved == null) {
-        throw StateError('Lesson ${lesson.id} was not found in local storage.');
-      }
-
-      if (!mounted) return;
-      setState(() {
-        lesson.completed = saved.completed;
-        final selected = _current;
-        if (!saved.completed &&
-            selected != null &&
-            !LessonAccessPolicy.isUnlocked(_lessons, selected)) {
-          _current = lesson;
-        }
-      });
-
-      final group = _groups.firstWhere(
-        (group) => group.lessons.any((item) => item.id == lesson.id),
-        orElse: () => LessonGroup(
-          month: lesson.month,
-          order: lesson.order,
-          lessons: [lesson],
-        ),
-      );
-      final groupKey = '${group.month}_${group.order}';
-      await _service.updateGroupCompletionDate(groupKey, group.isCompleted);
-
-      if (group.isCompleted && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              group.hasMultiple
-                  ? 'أحسنت! لقد أكملت هذه المجموعة من الدروس اليوم 🎉'
-                  : 'رائع! لقد أكملت هذا الدرس اليوم 🎉',
-              style: const TextStyle(
-                fontFamily: 'Cairo',
-                fontWeight: FontWeight.bold,
-              ),
-              textAlign: TextAlign.right,
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-
-      _bellKey.currentState?.refresh();
-    } catch (error) {
-      lesson.completed = previousValue;
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'تعذر حفظ حالة الدرس. حاول مرة أخرى.',
-            textAlign: TextAlign.right,
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _completionUpdates.remove(lesson.id));
-      }
-    }
-  }
-
   // ── Build ──────────────────────────────────────────────────────────────────
 
   final GlobalKey<NotificationBellState> _bellKey = GlobalKey();
@@ -236,6 +261,8 @@ class _LessonsPageState extends State<LessonsPage> {
     final bell = NotificationBell(key: _bellKey);
 
     return Scaffold(
+      key: _scaffoldKey,
+      endDrawer: _monthsDrawer(),
       appBar: AppBar(
         title: const Text(
           'رحلة الدروس',
@@ -245,7 +272,14 @@ class _LessonsPageState extends State<LessonsPage> {
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        actions: [bell],
+        actions: [
+          IconButton(
+            tooltip: 'اختيار الشهر',
+            icon: const Icon(Icons.calendar_month, color: Colors.white),
+            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+          ),
+          bell,
+        ],
       ),
       body: Stack(
         children: [
@@ -258,6 +292,88 @@ class _LessonsPageState extends State<LessonsPage> {
               ? _errorState(_loadError!)
               : _body(),
         ],
+      ),
+    );
+  }
+
+  Widget _monthsDrawer() {
+    final months = _months;
+
+    return Drawer(
+      backgroundColor: AppColors.darkTwo,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 20, 16, 12),
+              child: Text(
+                'الشهور',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontFamily: 'Cairo',
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const Divider(color: Colors.white12),
+            Expanded(
+              child: ListView.builder(
+                itemCount: months.length,
+                itemBuilder: (_, index) {
+                  final month = months[index];
+                  final selected = month == _selectedMonth;
+                  final groups = _groups.where((group) => group.month == month);
+                  final totalLessons = groups.fold<int>(
+                    0,
+                    (sum, group) => sum + group.lessons.length,
+                  );
+                  final completedLessons = groups.fold<int>(
+                    0,
+                    (sum, group) =>
+                        sum +
+                        group.lessons
+                            .where((lesson) => lesson.completed)
+                            .length,
+                  );
+
+                  return ListTile(
+                    selected: selected,
+                    selectedTileColor: AppColors.accent.withValues(alpha: 0.12),
+                    trailing: Icon(
+                      selected ? Icons.folder_open : Icons.folder_outlined,
+                      color: selected ? AppColors.accent : Colors.white70,
+                    ),
+                    title: Text(
+                      'الشهر $month',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        color: selected ? AppColors.accent : Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '$completedLessons / $totalLessons مكتمل',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        color: Colors.white.withValues(alpha: 0.55),
+                        fontSize: 12,
+                      ),
+                    ),
+                    onTap: () {
+                      setState(() => _selectedMonth = month);
+                      Navigator.of(context).pop();
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -318,7 +434,9 @@ class _LessonsPageState extends State<LessonsPage> {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       _playerCard(),
-      _sectionHeader('قائمة الدروس'),
+      _sectionHeader(
+        _selectedMonth == null ? 'قائمة الدروس' : 'دروس الشهر $_selectedMonth',
+      ),
       Expanded(child: _groupList()),
     ],
   );
@@ -344,7 +462,7 @@ class _LessonsPageState extends State<LessonsPage> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Text(
-                _current!.title,
+                _current!.displayTitle,
                 style: const TextStyle(
                   fontFamily: 'Cairo',
                   fontSize: 18,
@@ -391,8 +509,12 @@ class _LessonsPageState extends State<LessonsPage> {
 
     if (_supportsEmbeddedPlayer) {
       return EmbeddedYoutubePlayer(
-        key: ValueKey(current.id),
+        key: ValueKey(
+          '${current.id}_${current.startSecond}_${current.endSecond}',
+        ),
         videoUrl: current.youtubeUrl,
+        startSecond: current.startSecond,
+        endSecond: current.endSecond,
       );
     }
 
@@ -464,7 +586,7 @@ class _LessonsPageState extends State<LessonsPage> {
                   ? 'أكمل السابق أولًا'
                   : lesson.completed
                   ? 'تم الإكمال'
-                  : 'تحديد كمكتمل',
+                  : 'اكتمل بعد مشاهدة أكثر من النصف',
               style: const TextStyle(
                 fontFamily: 'Cairo',
                 fontWeight: FontWeight.bold,
@@ -504,12 +626,30 @@ class _LessonsPageState extends State<LessonsPage> {
 
   // ── Lesson groups list ─────────────────────────────────────────────────────
 
-  Widget _groupList() => ListView.builder(
-    controller: _scrollController,
-    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-    itemCount: _groups.length,
-    itemBuilder: (_, i) => _groupCard(_groups[i]),
-  );
+  Widget _groupList() {
+    final groups = _visibleGroups;
+
+    if (groups.isEmpty) {
+      return const Center(
+        child: Text(
+          'لا توجد دروس في هذا الشهر.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'Cairo',
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      itemCount: groups.length,
+      itemBuilder: (_, i) => _groupCard(groups[i]),
+    );
+  }
 
   Widget _groupCard(LessonGroup group) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
@@ -679,7 +819,9 @@ class _LessonsPageState extends State<LessonsPage> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      lesson.title.isNotEmpty ? lesson.title : 'بدون عنوان',
+                      lesson.displayTitle.isNotEmpty
+                          ? lesson.displayTitle
+                          : 'بدون عنوان',
                       style: TextStyle(
                         fontFamily: 'Cairo',
                         fontSize: 12,

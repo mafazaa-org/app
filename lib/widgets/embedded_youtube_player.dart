@@ -7,9 +7,16 @@ import '../constants/colors.dart';
 import '../utils/youtube_video_id.dart';
 
 class EmbeddedYoutubePlayer extends StatefulWidget {
-  const EmbeddedYoutubePlayer({super.key, required this.videoUrl});
+  const EmbeddedYoutubePlayer({
+    super.key,
+    required this.videoUrl,
+    this.startSecond,
+    this.endSecond,
+  });
 
   final String videoUrl;
+  final int? startSecond;
+  final int? endSecond;
 
   @override
   State<EmbeddedYoutubePlayer> createState() => _EmbeddedYoutubePlayerState();
@@ -88,7 +95,12 @@ class _EmbeddedYoutubePlayerState extends State<EmbeddedYoutubePlayer> {
   @override
   void didUpdateWidget(covariant EmbeddedYoutubePlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.videoUrl != widget.videoUrl) _loadVideo();
+
+    if (oldWidget.videoUrl != widget.videoUrl ||
+        oldWidget.startSecond != widget.startSecond ||
+        oldWidget.endSecond != widget.endSecond) {
+      _loadVideo();
+    }
   }
 
   Future<void> _loadVideo() async {
@@ -102,6 +114,18 @@ class _EmbeddedYoutubePlayerState extends State<EmbeddedYoutubePlayer> {
       return;
     }
 
+    final startSecond = widget.startSecond ?? 0;
+    final endSecond = widget.endSecond;
+
+    if (endSecond != null && endSecond <= startSecond) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _errorMessage = 'نطاق وقت الفيديو غير صحيح.';
+      });
+      return;
+    }
+
     if (mounted) {
       setState(() {
         _loading = true;
@@ -109,16 +133,23 @@ class _EmbeddedYoutubePlayerState extends State<EmbeddedYoutubePlayer> {
       });
     }
 
-    final playerUrl =
-        Uri.https('www.youtube-nocookie.com', '/embed/$videoId', const {
-          'playsinline': '1',
-          'rel': '0',
-          'fs': '0',
-          'enablejsapi': '1',
-          'hl': 'ar',
-          'origin': _appOrigin,
-          'widget_referrer': _appOrigin,
-        });
+    final queryParams = <String, String>{
+      'playsinline': '1',
+      'rel': '0',
+      'fs': '0',
+      'enablejsapi': '1',
+      'hl': 'ar',
+      'origin': _appOrigin,
+      'widget_referrer': _appOrigin,
+      if (startSecond > 0) 'start': startSecond.toString(),
+      if (endSecond != null) 'end': endSecond.toString(),
+    };
+
+    final playerUrl = Uri.https(
+      'www.youtube-nocookie.com',
+      '/embed/$videoId',
+      queryParams,
+    );
 
     await _controller.loadHtmlString(
       _playerHtml(playerUrl),
