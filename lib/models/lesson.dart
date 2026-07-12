@@ -71,14 +71,20 @@ class Lesson extends HiveObject {
     this.partNumber,
   });
 
-  String get displayTitle {
-    final cleanPartTitle = partTitle?.trim();
-    if (cleanPartTitle == null || cleanPartTitle.isEmpty) {
-      return title;
-    }
+String get displayTitle {
+  final cleanPartTitle = partTitle?.trim();
+  final cleanTitle = title.trim();
 
-    return '$title - $cleanPartTitle';
+  if (cleanPartTitle == null || cleanPartTitle.isEmpty) {
+    return cleanTitle;
   }
+
+  if (cleanTitle.isEmpty) {
+    return cleanPartTitle;
+  }
+
+  return '$cleanPartTitle - $cleanTitle';
+}
 
   bool get hasTimeRange => startSecond != null || endSecond != null;
 

@@ -167,15 +167,15 @@ class _EmbeddedYoutubePlayerState extends State<EmbeddedYoutubePlayer> {
     }
   }
 
-  Future<void> _startLimitedRangeVideo() async {
-    setState(() {
-      _showRangeIntro = false;
-      _loading = true;
-      _errorMessage = null;
-    });
+Future<void> _startLimitedRangeVideo() async {
+  setState(() {
+    _showRangeIntro = false;
+    _loading = true;
+    _errorMessage = null;
+  });
 
-    await _loadVideo();
-  }
+  await _loadVideo();
+}
 
   Future<void> _loadVideo() async {
     _partFinishedMessageShown = false;
@@ -305,12 +305,20 @@ class _EmbeddedYoutubePlayerState extends State<EmbeddedYoutubePlayer> {
         });
       }
 
-      function onPlayerReady() {
-        if (startSecond > 0) {
-          player.seekTo(startSecond, true);
-          player.pauseVideo();
-        }
-      }
+function onPlayerReady() {
+  if (startSecond > 0) {
+    player.seekTo(startSecond, true);
+  }
+
+  setTimeout(() => {
+    try {
+      player.playVideo();
+      startRangeGuard();
+    } catch (_) {
+      // If autoplay is blocked, the user can still press play manually.
+    }
+  }, 350);
+}
 
       function onPlayerStateChange(event) {
         if (event.data === YT.PlayerState.PLAYING) {
@@ -442,83 +450,109 @@ class _EmbeddedYoutubePlayerState extends State<EmbeddedYoutubePlayer> {
     return 'التطبيق سيعرض لك الجزء المطلوب فقط من هذا الفيديو.';
   }
 
-  Widget _rangeIntroScreen() {
-    return Container(
-      color: Colors.black,
-      padding: const EdgeInsets.all(20),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: AppColors.accent.withValues(alpha: 0.5),
-              width: 1.2,
+Widget _rangeIntroScreen() {
+  return Material(
+    color: Colors.black,
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxHeight < 190;
+
+        final cardPadding = isCompact ? 10.0 : 14.0;
+        final iconSize = isCompact ? 28.0 : 36.0;
+        final titleFontSize = isCompact ? 12.5 : 15.0;
+        final subtitleFontSize = isCompact ? 10.0 : 12.0;
+        final buttonHeight = isCompact ? 32.0 : 40.0;
+
+        return Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            physics: const ClampingScrollPhysics(),
+            child: Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(cardPadding),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: AppColors.accent.withValues(alpha: 0.5),
+                  width: 1.2,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.schedule_rounded,
+                    color: AppColors.accent,
+                    size: iconSize,
+                  ),
+                  SizedBox(height: isCompact ? 6 : 10),
+                  Text(
+                    _rangeIntroTitle(),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      color: Colors.white,
+                      fontSize: titleFontSize,
+                      fontWeight: FontWeight.bold,
+                      height: 1.35,
+                    ),
+                  ),
+                  SizedBox(height: isCompact ? 4 : 8),
+                  Text(
+                    _rangeIntroSubtitle(),
+                    textAlign: TextAlign.center,
+                    maxLines: isCompact ? 2 : 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      color: Colors.white.withValues(alpha: 0.72),
+                      fontSize: subtitleFontSize,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                  ),
+                  SizedBox(height: isCompact ? 8 : 12),
+                  SizedBox(
+                    height: buttonHeight,
+                    child: ElevatedButton.icon(
+                      onPressed: _startLimitedRangeVideo,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.accent,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: Icon(
+                        Icons.play_arrow_rounded,
+                        size: isCompact ? 17 : 20,
+                      ),
+                      label: Text(
+                        'ابدأ مشاهدة الجزء المطلوب',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                          fontSize: isCompact ? 11 : 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.schedule_rounded,
-                color: AppColors.accent,
-                size: 42,
-              ),
-              const SizedBox(height: 14),
-              Text(
-                _rangeIntroTitle(),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontFamily: 'Cairo',
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                _rangeIntroSubtitle(),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'Cairo',
-                  color: Colors.white.withValues(alpha: 0.72),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 18),
-              ElevatedButton.icon(
-                onPressed: _startLimitedRangeVideo,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.accent,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 10,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                icon: const Icon(Icons.play_arrow_rounded),
-                label: const Text(
-                  'ابدأ مشاهدة الجزء المطلوب',
-                  style: TextStyle(
-                    fontFamily: 'Cairo',
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
+        );
+      },
+    ),
+  );
+}
   @override
   Widget build(BuildContext context) {
     if (_showRangeIntro) {
