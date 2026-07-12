@@ -81,8 +81,6 @@ class _LessonsPageState extends State<LessonsPage> {
     return _groups.where((group) => group.month == month).toList();
   }
 
- 
-
   Future<void> _loadLessons() async {
     try {
       final lessons = await _service.getAllLessons();
@@ -586,7 +584,7 @@ class _LessonsPageState extends State<LessonsPage> {
                   ? 'أكمل السابق أولًا'
                   : lesson.completed
                   ? 'تم الإكمال'
-                  : 'اكتمل بعد مشاهدة أكثر من النصف',
+                  : 'تحديد كمكتمل',
               style: const TextStyle(
                 fontFamily: 'Cairo',
                 fontWeight: FontWeight.bold,
